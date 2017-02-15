@@ -5,6 +5,9 @@ body {
 }
 </style>
 <?php
+$start_time = microtime(TRUE);
+if(isset($_GET["vnum"])) $start_vnum = $_GET["vnum"]; else $start_vnum = 1;
+
 define(MAP_EXIT_N,1);
 define(MAP_EXIT_E,2);
 define(MAP_EXIT_S,4);
@@ -27,6 +30,8 @@ define(MAP_DIR_SE,(1 << (MAP_EXIT_S|MAP_EXIT_E)));
 define(MAP_DIR_SW,(1 << (MAP_EXIT_S|MAP_EXIT_W)));
 define(EXIT_FLAG_HIDE,(1 << 0));
 
+$colour = array("Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White");
+
 function get_arg_in_braces($str){
 	$line = substr(str_replace("{","",$str),1);
 	$ret = array_map('trim',explode("}",$line));
@@ -35,6 +40,7 @@ function get_arg_in_braces($str){
 
 function draw_room($room,$line){
 	global $map;
+	global $start_vnum;
 
 	$display = "";
 	if ($room == NULL)
@@ -49,7 +55,11 @@ function draw_room($room,$line){
 		break;
 		case "2":
 			if ($map->room_list[$room]->exit_dirs & MAP_DIR_W) $display .= "-"; else $display .= " ";
-			$display .= "[ ]";
+			if ($map->room_list[$room]->vnum == $start_vnum) {
+				$display .= "<a href='map.php?vnum=".$map->room_list[$room]->vnum."' title='[".$map->room_list[$room]->vnum."] ".$map->room_list[$room]->desc."'>[#]</a>";
+			} else {
+			$display .= "<a href='map.php?vnum=".$map->room_list[$room]->vnum."' title='[".$map->room_list[$room]->vnum."] ".$map->room_list[$room]->desc."'>[ ]</a>";
+			}
 			if ($map->room_list[$room]->exit_dirs & MAP_DIR_E) $display .= "-"; else $display .= " ";
 			if ($map->room_list[$room]->exit_dirs & MAP_DIR_E) $display .= "-"; else $display .= " ";
 		break;
@@ -66,15 +76,14 @@ function draw_room($room,$line){
 
 function create_exit($room,$data){
 	global $map;
-	$newexit = new stdClass();
 	$newexit->vnum = intval(trim($data[0]));
 	$newexit->name = trim($data[1]);
 	$newexit->cmd = trim($data[2]);
 	$newexit->dir = intval(trim($data[3]));
 	$newexit->flags = intval(trim($data[4]));
 	$newexit->data = $data[5];
-	$map->room_list[$room->vnum]->f_exit = $newexit;
-	$map->room_list[$room->vnum]->l_exit = $newexit;
+	$map->room_list[$room->vnum]->f_exit[] = $newexit;
+	$map->room_list[$room->vnum]->l_exit[] = $newexit;
 	$map->room_list[$room->vnum]->exit_size++;
 	$map->room_list[$room->vnum]->exit_dirs |= (1 << $newexit->dir);
 }
@@ -87,7 +96,7 @@ function create_room($data){
 	$newroom->colour = $data[2];
 	$newroom->name = $data[3];
 	$newroom->symbol = $data[4];
-	$newroom->desc = $data[5];
+	$newroom->desc = preg_replace('/\x1b(\[|\(|\))[;?0-9]*[0-9A-Za-z]/', "",$data[5]);
 	$newroom->area = $data[6];
 	$newroom->note = $data[7];
 	$newroom->terrain = $data[8];
@@ -121,106 +130,46 @@ function mygrid_build($vnum, $x, $y, $z)
 	{
 		$map->grid[vnum] = NULL;
 	}
-	//echo $node->x + $map_grid_x * $node->y;
+
 
 	$map->grid[$node->x + $map_grid_x * $node->y] = $room;
 
+//	for ($index = 0;$index<=sizeof($map->room_list);$index++)
+	for ($index = 0;$index <= 50000;$index++)
+	{
+		if ($map->room_list[$temp->vnum]->display_stamp != 1)
+		{
+		foreach ($room->f_exit as $exit)
+		{
+//			if ($exit->vnum == $last)
+//				continue;
+			$temp->vnum = $exit->vnum;
+			$temp->x = $node->x;
+			$temp->y = $node->y;
+			if (HAS_BIT($exit->dir,MAP_EXIT_E)) $temp->x = $node->x + 1;
+			if (HAS_BIT($exit->dir,MAP_EXIT_W)) $temp->x = $node->x - 1;
+			if (HAS_BIT($exit->dir,MAP_EXIT_N)) $temp->y = $node->y - 1;
+			if (HAS_BIT($exit->dir,MAP_EXIT_S)) $temp->y = $node->y + 1;
+
+			if (HAS_BIT($exit->dir,MAP_EXIT_N) & HAS_BIT($exit->dir,MAP_EXIT_W)) {$temp->x = $node->x - 1 ; $temp->y = $node->y - 1;}
+			if (HAS_BIT($exit->dir,MAP_EXIT_N) & HAS_BIT($exit->dir,MAP_EXIT_E)) {$temp->x = $node->x + 1 ; $temp->y = $node->y - 1;}
+			if (HAS_BIT($exit->dir,MAP_EXIT_S) & HAS_BIT($exit->dir,MAP_EXIT_W)) {$temp->x = $node->x - 1 ; $temp->y = $node->y + 1;}
+			if (HAS_BIT($exit->dir,MAP_EXIT_S) & HAS_BIT($exit->dir,MAP_EXIT_E)) {$temp->x = $node->x + 1 ; $temp->y = $node->y + 1;}
+
+			$temp->length = $node->length + 1;
+			$map->grid[$temp->x + $map_grid_x * $temp->y] = $map->room_list[$temp->vnum];
+			$map->room_list[$room->vnum]->display_stamp = 1;
+			$last = $room->vnum;
+			$next = $exit->vnum;
+		}
+		$room = $map->room_list[$next];
+		$node->x = $temp->x;
+		$node->y = $temp->y;
+		$node->z = $temp->z;
+		}
+	}
 	showgrid($x,$y);
 }
-
-function displaygrid_build($vnum, $x, $y, $z)
-{
-	global $map;
-	define(MAP_BF_SIZE,sizeof($map->room_list));
-//	define(MAP_BF_SIZE,100000);
-	$head = 0;
-	$tail = MAP_BF_SIZE;
-	$map_grid_x = $x;
-	$map_grid_y = $y;
-
-	$grid_node = new stdClass();
-	$node = new stdClass();
-	$temp = new stdClass();
-
-	$node = $list[$head];
-
-	$node->vnum   = $vnum;
-	$node->x      = $x / 2;
-	$node->y      = $y / 2;
-	$node->z      = $z / 2;
-	$node->length = 0;
-
-	$map->display_stamp++;
-	for ($vnum = 0 ; $vnum < $x * $y ; $vnum++)
-	{
-		$map->grid[vnum] = NULL;
-	}
-
-	while ($head != $tail)
-	{
-		$node = $list[$head];
-		$head = ($head + 1);// % MAP_BF_SIZE;
-		$room = $map->room_list[$node->vnum];
-
-		if ($map->display_stamp != $room->display_stamp)
-		{
-			$room->display_stamp = $map->display_stamp;
-		}
-		else if ($room->length <= $node->length)
-		{
-			continue;
-		}
-		$room->length = $node->length;
-
-		if ($node->x >= 0 && $node->x < $map_grid_x && $node->y >= 0 && $node->y < $map_grid_y && $node->z == 0)
-		{
-			if ($map->grid[$node->x + $map_grid_x * $node->y] == NULL)
-			{
-				$map->grid[$node->x + $map_grid_x * $node->y] = $room;
-			}
-			else
-			{
-				continue;
-			}
-		}
-
-		for ($exit = $room->f_exit ; $exit ; $exit = $exit->next)
-		{
-			if ($map->display_stamp == $map->room_list[$exit->vnum]->$display_stamp)
-			{
-				if ($room->length >= $map->room_list[$exit->vnum]->length)
-				{
-					continue;
-				}
-			}
-
-			if ($exit->dir == 0)
-			{
-				continue;
-			}
-
-			if (HAS_BIT($exit->flags, EXIT_FLAG_HIDE) || HAS_BIT($map->room_list[$exit->vnum]->flags, ROOM_FLAG_HIDE))
-			{
-				continue;
-			}
-			if ($head == ($tail + 1) % MAP_BF_SIZE)
-			{
-				break;
-			}
-
-			$temp = $list[$tail];
-
-			$temp->vnum   = $exit->vnum;
-			$temp->x      = $node->x + (HAS_BIT($exit->dir, MAP_EXIT_E) ?  1 : HAS_BIT($exit->dir, MAP_EXIT_W) ? -1 : 0);
-			$temp->y      = $node->y + (HAS_BIT($exit->dir, MAP_EXIT_N) ?  1 : HAS_BIT($exit->dir, MAP_EXIT_S) ? -1 : 0);
-			$temp->z      = $node->z + (HAS_BIT($exit->dir, MAP_EXIT_U) ?  1 : HAS_BIT($exit->dir, MAP_EXIT_D) ? -1 : 0);
-			$temp->length = $node->length + 1;
-
-			$tail = ($tail + 1) % MAP_BF_SIZE;
-		}
-	}
-}
-
 
 function showgrid($x,$y)
 {
@@ -232,7 +181,7 @@ function showgrid($x,$y)
 		$buf = "";
 		for ($col = 0 ; $col <= $x; $col++)
 		{
-			$buf .= draw_room($map->grid[$col + $x *$rows]->vnum,$line);
+			$buf .= draw_room($map->grid[$col + $x * $rows]->vnum,$line);
 		}
 		echo $buf."<br>";
 	}
@@ -262,5 +211,12 @@ map_read("ele.map");
 
 echo "Rooms:".sizeof($map->room_list)."<br><hr><pre><br>";
 
-mygrid_build(59,10,10,0);
+mygrid_build($start_vnum,20,10,0);
+
+
+$end_time = microtime(TRUE);
+$time_taken = $end_time - $start_time;
+$time_taken = round($time_taken,5);
+echo '<center><small>Page generated in '.$time_taken.' seconds.</small></center>';
+//var_dump($map->room_list[59]);
 ?>
